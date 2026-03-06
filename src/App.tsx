@@ -45,6 +45,9 @@ export default function App() {
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [isAdding, setIsAdding] = useState(false);
   const [activeTab, setActiveTab] = useState<"dashboard" | "history" | "stats">("dashboard");
+  const [searchQuery, setSearchQuery] = useState("");
+  const [filterCategory, setFilterCategory] = useState("Semua");
+  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [tokens, setTokens] = useState<GoogleTokens | null>(() => {
     const saved = localStorage.getItem("google_tokens");
     return saved ? JSON.parse(saved) : null;
@@ -115,6 +118,7 @@ export default function App() {
       if (rows.length > 1) {
         const mapped: Transaction[] = rows.slice(1).map((row: any[], index: number) => ({
           id: `sheet-${index}`,
+          sheetRow: index + 1, // Row 1 is headers, so index 0 of slice(1) is row 2 (index 1 in sheet)
           date: row[0] || "",
           description: row[1] || "",
           category: row[2] || "",
@@ -132,6 +136,46 @@ export default function App() {
       setIsLoading(false);
     }
   };
+
+  const deleteTransaction = async (tx: Transaction) => {
+    if (!tokens || !spreadsheetId || tx.sheetRow === undefined) return;
+    
+    if (!confirm("Apakah Anda yakin ingin menghapus transaksi ini?")) return;
+
+    setIsLoading(true);
+    setError(null);
+    try {
+      const response = await fetch("/api/sheets/delete", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          tokens,
+          spreadsheetId,
+          rowIndex: tx.sheetRow,
+        }),
+      });
+      
+      const data = await response.json();
+      if (data.error) throw new Error(data.error);
+      
+      setSuccessMessage("Transaksi berhasil dihapus!");
+      setTimeout(() => setSuccessMessage(null), 3000);
+      fetchFromSheets();
+    } catch (err: any) {
+      setError("Gagal menghapus: " + err.message);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const filteredTransactions = useMemo(() => {
+    return transactions.filter(tx => {
+      const matchesSearch = tx.description.toLowerCase().includes(searchQuery.toLowerCase()) || 
+                           tx.category.toLowerCase().includes(searchQuery.toLowerCase());
+      const matchesCategory = filterCategory === "Semua" || tx.category === filterCategory;
+      return matchesSearch && matchesCategory;
+    });
+  }, [transactions, searchQuery, filterCategory]);
 
   const handleInitializeSheet = async () => {
     if (!tokens || !spreadsheetId) return;
@@ -387,7 +431,7 @@ export default function App() {
             <button 
               className="p-2 text-slate-400 hover:text-slate-600 transition-colors"
               title="Settings"
-              onClick={() => setError("Fitur pengaturan akan segera hadir!")}
+              onClick={() => setIsSettingsOpen(true)}
             >
               <Settings className="w-5 h-5" />
             </button>
@@ -544,9 +588,34 @@ export default function App() {
                 <Plus className="w-5 h-5" />
               </button>
             </div>
+
+            {/* Search & Filter */}
+            <div className="flex flex-col sm:flex-row gap-3">
+              <div className="relative flex-1">
+                <History className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+                <input 
+                  type="text"
+                  placeholder="Cari deskripsi..."
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  className="w-full bg-white border border-slate-100 rounded-xl py-3 pl-10 pr-4 text-sm focus:ring-2 focus:ring-blue-500 transition-all shadow-sm"
+                />
+              </div>
+              <select 
+                value={filterCategory}
+                onChange={(e) => setFilterCategory(e.target.value)}
+                className="bg-white border border-slate-100 rounded-xl py-3 px-4 text-sm focus:ring-2 focus:ring-blue-500 transition-all shadow-sm appearance-none"
+              >
+                <option value="Semua">Semua Kategori</option>
+                {[...CATEGORIES.expense, ...CATEGORIES.income].map(c => (
+                  <option key={c} value={c}>{c}</option>
+                ))}
+              </select>
+            </div>
+
             <div className="space-y-3">
-              {transactions.map((tx) => (
-                <div key={tx.id} className="bg-white p-4 rounded-2xl border border-slate-100 flex items-center justify-between shadow-sm">
+              {filteredTransactions.map((tx) => (
+                <div key={tx.id} className="bg-white p-4 rounded-2xl border border-slate-100 flex items-center justify-between shadow-sm group">
                   <div className="flex items-center gap-4">
                     <div className={cn(
                       "w-12 h-12 rounded-xl flex items-center justify-center",
@@ -560,14 +629,28 @@ export default function App() {
                       {tx.note && <p className="text-[10px] text-slate-400 mt-1 italic">"{tx.note}"</p>}
                     </div>
                   </div>
-                  <p className={cn(
-                    "font-bold",
-                    tx.type === "income" ? "text-emerald-600" : "text-rose-600"
-                  )}>
-                    {tx.type === "income" ? "+" : "-"} Rp {tx.amount.toLocaleString("id-ID")}
-                  </p>
+                  <div className="flex items-center gap-4">
+                    <p className={cn(
+                      "font-bold",
+                      tx.type === "income" ? "text-emerald-600" : "text-rose-600"
+                    )}>
+                      {tx.type === "income" ? "+" : "-"} Rp {tx.amount.toLocaleString("id-ID")}
+                    </p>
+                    <button 
+                      onClick={() => deleteTransaction(tx)}
+                      className="p-2 text-slate-300 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-all"
+                      title="Hapus"
+                    >
+                      <Minus className="w-4 h-4" />
+                    </button>
+                  </div>
                 </div>
               ))}
+              {filteredTransactions.length === 0 && (
+                <div className="text-center py-12 bg-white rounded-3xl border border-dashed border-slate-200">
+                  <p className="text-slate-400 font-medium">Tidak ada transaksi yang cocok</p>
+                </div>
+              )}
             </div>
           </motion.div>
         )}
@@ -679,6 +762,61 @@ export default function App() {
           </button>
         </div>
       </nav>
+
+      {/* Settings Modal */}
+      <AnimatePresence>
+        {isSettingsOpen && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-6">
+            <motion.div 
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setIsSettingsOpen(false)}
+              className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm"
+            />
+            <motion.div 
+              initial={{ scale: 0.9, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.9, opacity: 0 }}
+              className="relative w-full max-w-md bg-white rounded-[32px] p-8 shadow-2xl"
+            >
+              <h2 className="text-2xl font-bold text-slate-900 mb-6">Pengaturan</h2>
+              
+              <div className="space-y-6">
+                <div className="space-y-2">
+                  <label className="text-xs font-bold text-slate-400 uppercase">Spreadsheet ID</label>
+                  <div className="flex gap-2">
+                    <input 
+                      type="text" 
+                      value={spreadsheetId || ""} 
+                      onChange={(e) => {
+                        setSpreadsheetId(e.target.value);
+                        localStorage.setItem("spreadsheet_id", e.target.value);
+                      }}
+                      className="flex-1 bg-slate-50 border-none rounded-xl py-3 px-4 text-sm focus:ring-2 focus:ring-blue-500 transition-all"
+                    />
+                  </div>
+                </div>
+
+                <div className="space-y-2">
+                  <label className="text-xs font-bold text-slate-400 uppercase">Tentang Aplikasi</label>
+                  <div className="bg-slate-50 p-4 rounded-2xl text-sm text-slate-600 space-y-2">
+                    <p><strong>Rafli Finance Tracker</strong> v1.0.0</p>
+                    <p>Aplikasi pencatat keuangan pribadi yang terintegrasi langsung dengan Google Sheets.</p>
+                  </div>
+                </div>
+
+                <button 
+                  onClick={() => setIsSettingsOpen(false)}
+                  className="w-full bg-slate-900 text-white font-bold py-4 rounded-2xl transition-all"
+                >
+                  Tutup
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
 
       {/* Add Transaction Modal */}
       <AnimatePresence>

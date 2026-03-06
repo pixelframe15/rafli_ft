@@ -210,6 +210,52 @@ app.post("/api/sheets/init", async (req, res) => {
   }
 });
 
+app.post("/api/sheets/delete", async (req, res) => {
+  const { tokens, spreadsheetId, rowIndex } = req.body;
+  if (!tokens || !spreadsheetId || rowIndex === undefined) {
+    return res.status(400).json({ error: "Missing tokens, spreadsheetId or rowIndex" });
+  }
+
+  try {
+    oauth2Client.setCredentials(tokens);
+    const sheets = google.sheets({ version: "v4", auth: oauth2Client });
+    
+    // Get the sheet ID for "Transactions"
+    const spreadsheet = await sheets.spreadsheets.get({ spreadsheetId });
+    const sheet = spreadsheet.data.sheets?.find(s => s.properties?.title === "Transactions");
+    
+    if (!sheet) {
+      return res.status(404).json({ error: "Sheet 'Transactions' not found" });
+    }
+
+    const sheetId = sheet.properties?.sheetId;
+
+    await sheets.spreadsheets.batchUpdate({
+      spreadsheetId,
+      requestBody: {
+        requests: [
+          {
+            deleteDimension: {
+              range: {
+                sheetId,
+                dimension: "ROWS",
+                startIndex: rowIndex,
+                endIndex: rowIndex + 1,
+              },
+            },
+          },
+        ],
+      },
+    });
+
+    res.json({ success: true });
+  } catch (error: any) {
+    console.error("Sheets API error:", error);
+    const message = error.response?.data?.error?.message || error.message;
+    res.status(500).json({ error: message });
+  }
+});
+
 // Vite middleware for development
 if (process.env.NODE_ENV !== "production") {
   const vite = await createViteServer({

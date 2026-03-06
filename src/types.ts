@@ -2,6 +2,7 @@ export type TransactionType = "income" | "expense";
 
 export interface Transaction {
   id: string;
+  sheetRow?: number;
   date: string;
   description: string;
   category: string;
