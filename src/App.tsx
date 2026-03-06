@@ -128,10 +128,14 @@ export default function App() {
   const handleConnect = async () => {
     try {
       const res = await fetch("/api/auth/url");
-      const { url } = await res.json();
-      window.open(url, "oauth_popup", "width=600,height=700");
+      const data = await res.json();
+      if (data.error) {
+        setError(data.error);
+        return;
+      }
+      window.open(data.url, "oauth_popup", "width=600,height=700");
     } catch (err) {
-      setError("Failed to get auth URL");
+      setError("Gagal mendapatkan URL autentikasi. Pastikan server berjalan.");
     }
   };
 

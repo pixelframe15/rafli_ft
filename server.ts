@@ -15,6 +15,10 @@ const PORT = 3000;
 
 app.use(express.json());
 
+console.log("GOOGLE_CLIENT_ID set:", !!process.env.GOOGLE_CLIENT_ID);
+console.log("GOOGLE_CLIENT_SECRET set:", !!process.env.GOOGLE_CLIENT_SECRET);
+console.log("APP_URL:", process.env.APP_URL);
+
 // Google OAuth setup
 const oauth2Client = new google.auth.OAuth2(
   process.env.GOOGLE_CLIENT_ID,
@@ -26,10 +30,19 @@ const SCOPES = ["https://www.googleapis.com/auth/spreadsheets", "https://www.goo
 
 // Auth URL endpoint
 app.get("/api/auth/url", (req, res) => {
+  if (!process.env.GOOGLE_CLIENT_ID || !process.env.GOOGLE_CLIENT_SECRET) {
+    return res.status(500).json({ 
+      error: "Google Client ID atau Secret belum disetel di panel Secrets AI Studio." 
+    });
+  }
+
+  const redirectUri = `${process.env.APP_URL}/auth/callback`;
+  
   const url = oauth2Client.generateAuthUrl({
     access_type: "offline",
     scope: SCOPES,
     prompt: "consent",
+    redirect_uri: redirectUri, // Explicitly pass redirect_uri
   });
   res.json({ url });
 });
@@ -38,7 +51,11 @@ app.get("/api/auth/url", (req, res) => {
 app.get("/auth/callback", async (req, res) => {
   const { code } = req.query;
   try {
-    const { tokens } = await oauth2Client.getToken(code as string);
+    const redirectUri = `${process.env.APP_URL}/auth/callback`;
+    const { tokens } = await oauth2Client.getToken({
+      code: code as string,
+      redirect_uri: redirectUri,
+    });
     // In a real app, we'd store this in a session or DB.
     // For this demo, we'll send it back to the client to store in localStorage (not secure for production, but works for demo)
     res.send(`
