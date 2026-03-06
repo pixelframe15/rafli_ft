@@ -76,6 +76,7 @@ export default function App() {
   }, []);
 
   const [needsInit, setNeedsInit] = useState(false);
+  const [successMessage, setSuccessMessage] = useState<string | null>(null);
 
   const fetchFromSheets = async () => {
     if (!tokens || !spreadsheetId) return;
@@ -85,35 +86,48 @@ export default function App() {
       const response = await fetch("/api/sheets/get", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ tokens, spreadsheetId, range: "Transactions!A2:F" }),
+        body: JSON.stringify({ tokens, spreadsheetId, range: "Transactions!A1:F" }),
       });
       const data = await response.json();
+      
       if (data.error) {
         if (data.error.includes("range")) {
           setNeedsInit(true);
           return;
         }
-        if (data.error.includes("404") || data.error.includes("not found")) {
-          setError("Spreadsheet tidak ditemukan. Pastikan ID benar dan Anda memiliki akses.");
-          return;
-        }
         setError(data.error);
         return;
       }
-      if (data.values) {
-        const mapped: Transaction[] = data.values.map((row: any[], index: number) => ({
+
+      if (!data.values || data.values.length === 0) {
+        setNeedsInit(true);
+        setTransactions([]);
+        return;
+      }
+
+      const rows = data.values;
+      const headers = rows[0];
+      
+      if (headers[0] !== "Date" && headers[0] !== "Tanggal") {
+        setNeedsInit(true);
+      }
+
+      if (rows.length > 1) {
+        const mapped: Transaction[] = rows.slice(1).map((row: any[], index: number) => ({
           id: `sheet-${index}`,
-          date: row[0],
-          description: row[1],
-          category: row[2],
-          type: row[3] as TransactionType,
-          amount: parseFloat(row[4]),
-          note: row[5],
+          date: row[0] || "",
+          description: row[1] || "",
+          category: row[2] || "",
+          type: (row[3] as TransactionType) || "expense",
+          amount: parseFloat(row[4]) || 0,
+          note: row[5] || "",
         }));
         setTransactions(mapped.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()));
+      } else {
+        setTransactions([]);
       }
     } catch (err) {
-      setError("Gagal mengambil data. Pastikan ID Spreadsheet benar.");
+      setError("Gagal mengambil data. Periksa koneksi internet Anda.");
     } finally {
       setIsLoading(false);
     }
@@ -180,19 +194,33 @@ export default function App() {
     setTransactions([newTx, ...transactions]);
     
     if (tokens && spreadsheetId) {
+      setIsLoading(true);
+      setError(null);
+      setSuccessMessage(null);
       try {
-        await fetch("/api/sheets/append", {
+        const response = await fetch("/api/sheets/append", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             tokens,
             spreadsheetId,
-            range: "Transactions!A:F",
+            range: "Transactions!A2:F",
             values: [[tx.date, tx.description, tx.category, tx.type, tx.amount, tx.note || ""]],
           }),
         });
-      } catch (err) {
-        console.error("Failed to sync to sheets", err);
+        
+        const data = await response.json();
+        if (data.error) {
+          throw new Error(data.error);
+        }
+        
+        setSuccessMessage("Transaksi berhasil disimpan ke Google Sheets!");
+        setTimeout(() => setSuccessMessage(null), 3000);
+        fetchFromSheets();
+      } catch (err: any) {
+        setError("Gagal sinkron ke Sheets: " + err.message);
+      } finally {
+        setIsLoading(false);
       }
     }
   };
@@ -778,6 +806,23 @@ export default function App() {
               </form>
             </motion.div>
           </div>
+        )}
+      </AnimatePresence>
+
+      {/* Success Toast */}
+      <AnimatePresence>
+        {successMessage && (
+          <motion.div 
+            initial={{ opacity: 0, y: 50 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: 50 }}
+            className="fixed bottom-24 left-6 right-6 z-50 bg-emerald-600 text-white p-4 rounded-2xl shadow-2xl flex items-center gap-3"
+          >
+            <div className="bg-white/20 p-2 rounded-xl">
+              <TrendingUp className="w-5 h-5" />
+            </div>
+            <p className="text-sm font-bold">{successMessage}</p>
+          </motion.div>
         )}
       </AnimatePresence>
 
