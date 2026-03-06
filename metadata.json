@@ -1,0 +1,5 @@
+{
+  "name": "Rafli Finance Tracker",
+  "description": "Personal income and expense tracker for Achmad Rafli Wijaya at Universitas Brawijaya, integrated with Google Sheets.",
+  "requestFramePermissions": []
+}
