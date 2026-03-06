@@ -96,7 +96,8 @@ app.post("/api/sheets/append", async (req, res) => {
     res.json(result.data);
   } catch (error: any) {
     console.error("Sheets API error:", error);
-    res.status(500).json({ error: error.message });
+    const message = error.response?.data?.error?.message || error.message;
+    res.status(500).json({ error: message });
   }
 });
 
@@ -114,7 +115,9 @@ app.post("/api/sheets/get", async (req, res) => {
     res.json(result.data);
   } catch (error: any) {
     console.error("Sheets API error:", error);
-    res.status(500).json({ error: error.message });
+    // Return a more descriptive error if possible
+    const message = error.response?.data?.error?.message || error.message;
+    res.status(500).json({ error: message });
   }
 });
 
@@ -153,7 +156,57 @@ app.post("/api/sheets/create", async (req, res) => {
     res.json({ spreadsheetId });
   } catch (error: any) {
     console.error("Sheets API error:", error);
-    res.status(500).json({ error: error.message });
+    const message = error.response?.data?.error?.message || error.message;
+    res.status(500).json({ error: message });
+  }
+});
+
+app.post("/api/sheets/init", async (req, res) => {
+  const { tokens, spreadsheetId } = req.body;
+  if (!tokens || !spreadsheetId) return res.status(400).json({ error: "Missing tokens or spreadsheetId" });
+
+  try {
+    oauth2Client.setCredentials(tokens);
+    const sheets = google.sheets({ version: "v4", auth: oauth2Client });
+    
+    // Check if sheet exists
+    const spreadsheet = await sheets.spreadsheets.get({ spreadsheetId });
+    const sheetExists = spreadsheet.data.sheets?.some(s => s.properties?.title === "Transactions");
+
+    if (!sheetExists) {
+      // Add the sheet
+      await sheets.spreadsheets.batchUpdate({
+        spreadsheetId,
+        requestBody: {
+          requests: [
+            {
+              addSheet: {
+                properties: {
+                  title: "Transactions",
+                  gridProperties: { rowCount: 1000, columnCount: 6 },
+                },
+              },
+            },
+          ],
+        },
+      });
+    }
+
+    // Always try to update headers (in case it's a new sheet or empty)
+    await sheets.spreadsheets.values.update({
+      spreadsheetId,
+      range: "Transactions!A1:F1",
+      valueInputOption: "RAW",
+      requestBody: {
+        values: [["Date", "Description", "Category", "Type", "Amount", "Note"]],
+      },
+    });
+
+    res.json({ success: true });
+  } catch (error: any) {
+    console.error("Sheets API error:", error);
+    const message = error.response?.data?.error?.message || error.message;
+    res.status(500).json({ error: message });
   }
 });
 

@@ -88,8 +88,16 @@ export default function App() {
         body: JSON.stringify({ tokens, spreadsheetId, range: "Transactions!A2:F" }),
       });
       const data = await response.json();
-      if (data.error && data.error.includes("range")) {
-        setNeedsInit(true);
+      if (data.error) {
+        if (data.error.includes("range")) {
+          setNeedsInit(true);
+          return;
+        }
+        if (data.error.includes("404") || data.error.includes("not found")) {
+          setError("Spreadsheet tidak ditemukan. Pastikan ID benar dan Anda memiliki akses.");
+          return;
+        }
+        setError(data.error);
         return;
       }
       if (data.values) {
@@ -115,11 +123,20 @@ export default function App() {
     if (!tokens || !spreadsheetId) return;
     setIsLoading(true);
     try {
-      // We can reuse the create logic but just for adding the sheet/headers
-      // For simplicity, I'll just append headers to A1:F1 of a new sheet named Transactions
-      // But the server-side 'create' creates a whole new file.
-      // I'll add a new endpoint or update the server to handle existing sheet initialization.
-      setError("Fitur inisialisasi sheet sedang disiapkan. Untuk saat ini, gunakan tombol 'Buat Spreadsheet Baru' untuk hasil terbaik.");
+      const response = await fetch("/api/sheets/init", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ tokens, spreadsheetId }),
+      });
+      const data = await response.json();
+      if (data.error) {
+        setError(data.error);
+      } else {
+        setNeedsInit(false);
+        fetchFromSheets();
+      }
+    } catch (err) {
+      setError("Gagal menginisialisasi spreadsheet.");
     } finally {
       setIsLoading(false);
     }
@@ -320,6 +337,32 @@ export default function App() {
             </div>
           </div>
           <div className="flex items-center gap-2">
+            {spreadsheetId && (
+              <a 
+                href={`https://docs.google.com/spreadsheets/d/${spreadsheetId}`}
+                target="_blank"
+                rel="noreferrer"
+                className="p-2 text-slate-400 hover:text-emerald-600 transition-colors"
+                title="Open Google Sheet"
+              >
+                <FileSpreadsheet className="w-5 h-5" />
+              </a>
+            )}
+            <button 
+              onClick={fetchFromSheets}
+              disabled={isLoading}
+              className="p-2 text-slate-400 hover:text-blue-600 transition-colors disabled:opacity-50"
+              title="Refresh Data"
+            >
+              <Loader2 className={cn("w-5 h-5", isLoading && "animate-spin")} />
+            </button>
+            <button 
+              className="p-2 text-slate-400 hover:text-slate-600 transition-colors"
+              title="Settings"
+              onClick={() => setError("Fitur pengaturan akan segera hadir!")}
+            >
+              <Settings className="w-5 h-5" />
+            </button>
             <button 
               onClick={() => {
                 localStorage.removeItem("google_tokens");
@@ -328,6 +371,7 @@ export default function App() {
                 setSpreadsheetId(null);
               }}
               className="p-2 text-slate-400 hover:text-red-500 transition-colors"
+              title="Logout"
             >
               <LogOut className="w-5 h-5" />
             </button>
@@ -337,12 +381,22 @@ export default function App() {
 
       <main className="max-w-4xl mx-auto p-6 space-y-6">
         {needsInit && (
-          <div className="bg-amber-50 border border-amber-100 p-4 rounded-2xl flex items-center gap-3 mb-6">
-            <AlertCircle className="w-5 h-5 text-amber-600 shrink-0" />
-            <div className="text-left">
-              <p className="text-sm font-bold text-amber-900">Sheet Belum Siap</p>
-              <p className="text-xs text-amber-700">Tab 'Transactions' tidak ditemukan di Spreadsheet Anda. Silakan buat tab baru dengan nama 'Transactions' atau gunakan tombol 'Buat Spreadsheet Baru'.</p>
+          <div className="bg-amber-50 border border-amber-100 p-6 rounded-3xl flex flex-col gap-4 mb-6 shadow-sm">
+            <div className="flex items-start gap-3">
+              <AlertCircle className="w-6 h-6 text-amber-600 shrink-0 mt-0.5" />
+              <div className="text-left">
+                <p className="text-lg font-bold text-amber-900">Sheet Belum Siap</p>
+                <p className="text-sm text-amber-700">Tab 'Transactions' tidak ditemukan di Spreadsheet Anda. Klik tombol di bawah untuk menyiapkan tab tersebut secara otomatis.</p>
+              </div>
             </div>
+            <button 
+              onClick={handleInitializeSheet}
+              disabled={isLoading}
+              className="bg-amber-600 hover:bg-amber-700 disabled:opacity-50 text-white font-bold py-3 px-6 rounded-2xl transition-all flex items-center justify-center gap-2 shadow-lg shadow-amber-100"
+            >
+              {isLoading ? <Loader2 className="w-5 h-5 animate-spin" /> : <Plus className="w-5 h-5" />}
+              Siapkan Tab Transaksi
+            </button>
           </div>
         )}
         {activeTab === "dashboard" && (
@@ -351,6 +405,16 @@ export default function App() {
             animate={{ opacity: 1, y: 0 }}
             className="space-y-6"
           >
+            <div className="flex items-center justify-between">
+              <h2 className="text-2xl font-bold text-slate-900">Dashboard</h2>
+              <button 
+                onClick={() => setIsAdding(true)}
+                className="bg-blue-600 text-white p-2 rounded-xl shadow-lg shadow-blue-100"
+              >
+                <Plus className="w-5 h-5" />
+              </button>
+            </div>
+            
             {/* Balance Card */}
             <div className="bg-blue-600 rounded-3xl p-8 text-white shadow-2xl shadow-blue-200 relative overflow-hidden">
               <div className="relative z-10">
@@ -443,7 +507,15 @@ export default function App() {
             animate={{ opacity: 1, x: 0 }}
             className="space-y-6"
           >
-            <h2 className="text-2xl font-bold text-slate-900">Riwayat Transaksi</h2>
+            <div className="flex items-center justify-between">
+              <h2 className="text-2xl font-bold text-slate-900">Riwayat Transaksi</h2>
+              <button 
+                onClick={() => setIsAdding(true)}
+                className="bg-blue-600 text-white p-2 rounded-xl shadow-lg shadow-blue-100"
+              >
+                <Plus className="w-5 h-5" />
+              </button>
+            </div>
             <div className="space-y-3">
               {transactions.map((tx) => (
                 <div key={tx.id} className="bg-white p-4 rounded-2xl border border-slate-100 flex items-center justify-between shadow-sm">
@@ -478,7 +550,15 @@ export default function App() {
             animate={{ opacity: 1, x: 0 }}
             className="space-y-6"
           >
-            <h2 className="text-2xl font-bold text-slate-900">Statistik Keuangan</h2>
+            <div className="flex items-center justify-between">
+              <h2 className="text-2xl font-bold text-slate-900">Statistik Keuangan</h2>
+              <button 
+                onClick={() => setIsAdding(true)}
+                className="bg-blue-600 text-white p-2 rounded-xl shadow-lg shadow-blue-100"
+              >
+                <Plus className="w-5 h-5" />
+              </button>
+            </div>
             
             {/* Weekly Bar Chart */}
             <div className="bg-white p-6 rounded-3xl border border-slate-100 shadow-sm">
